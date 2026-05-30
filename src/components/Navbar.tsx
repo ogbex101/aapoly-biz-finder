@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAuth } from "@/lib/auth";
-import { mockCategories } from "@/lib/mockData";
+import { defaultCategories } from "@/lib/mockData";
 
 export function Navbar() {
   const { user, signOut } = useAuth();
@@ -51,7 +51,7 @@ export function Navbar() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            {mockCategories.map((c) => (
+            {defaultCategories.map((c) => (
               <DropdownMenuItem key={c.id}>{c.name}</DropdownMenuItem>
             ))}
           </DropdownMenuContent>

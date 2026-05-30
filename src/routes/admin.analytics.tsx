@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Card, CardContent } from "@/components/ui/card";
 import { TrendingUp, Eye, Users, Store } from "lucide-react";
-import { mockListings, mockUsers, mockCategories } from "@/lib/mockData";
+import { defaultCategories } from "@/lib/mockData";
 
 export const Route = createFileRoute("/admin/analytics")({
   component: Analytics,
@@ -10,17 +10,17 @@ export const Route = createFileRoute("/admin/analytics")({
 function Analytics() {
   const stats = [
     { label: "Total Views (30d)", value: "12.4K", icon: Eye, trend: "+18%" },
-    { label: "New Signups (30d)", value: mockUsers.length, icon: Users, trend: "+5%" },
-    { label: "Active Listings", value: mockListings.filter((l) => l.status === "approved").length, icon: Store, trend: "+12%" },
+    { label: "New Signups (30d)", value: "—", icon: Users, trend: "+5%" },
+    { label: "Active Listings", value: "—", icon: Store, trend: "+12%" },
     { label: "Engagement", value: "67%", icon: TrendingUp, trend: "+4%" },
   ];
 
-  // Simple bars per category (count of listings).
-  const byCategory = mockCategories.map((c) => ({
+  // Category bar chart uses default categories as labels; counts come from DB in future.
+  const byCategory = defaultCategories.map((c) => ({
     name: c.name,
-    count: mockListings.filter((l) => l.category === c.name).length,
+    count: 0,
   }));
-  const max = Math.max(1, ...byCategory.map((b) => b.count));
+  const max = 1;
 
   return (
     <div className="space-y-6">
