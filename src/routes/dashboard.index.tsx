@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import {
   Eye,
   Store,
@@ -6,12 +7,14 @@ import {
   MessageSquare,
   TrendingUp,
   Plus,
+  Loader2,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth";
-import { mockListings, mockMessages, mockFavorites } from "@/lib/mockData";
+import { supabase } from "@/lib/supabaseClient";
+import type { Listing, Message } from "@/lib/mockData";
 
 export const Route = createFileRoute("/dashboard/")({
   component: DashboardOverview,
@@ -19,13 +22,47 @@ export const Route = createFileRoute("/dashboard/")({
 
 function DashboardOverview() {
   const { user } = useAuth();
-  const my = mockListings.slice(0, 3);
+  const [myListings, setMyListings] = useState<Listing[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [favCount, setFavCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+
+    Promise.all([
+      // My listings
+      supabase
+        .from("listings")
+        .select("*")
+        .eq("owner_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(5),
+      // Messages sent to me
+      supabase
+        .from("messages")
+        .select("*")
+        .eq("to_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(5),
+      // Favourites count
+      supabase
+        .from("favorites")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", user.id),
+    ]).then(([listingsRes, messagesRes, favsRes]) => {
+      if (!listingsRes.error) setMyListings((listingsRes.data ?? []) as Listing[]);
+      if (!messagesRes.error) setMessages((messagesRes.data ?? []) as Message[]);
+      if (!favsRes.error) setFavCount(favsRes.count ?? 0);
+      setLoading(false);
+    });
+  }, [user]);
 
   const stats = [
-    { label: "My Listings", value: my.length, icon: Store, color: "text-blue-600" },
-    { label: "Total Views", value: 1284, icon: Eye, color: "text-emerald-600" },
-    { label: "Saved", value: mockFavorites.length, icon: Heart, color: "text-rose-600" },
-    { label: "Messages", value: mockMessages.length, icon: MessageSquare, color: "text-violet-600" },
+    { label: "My Listings", value: myListings.length, icon: Store, color: "text-blue-600" },
+    { label: "Total Views", value: "—", icon: Eye, color: "text-emerald-600" },
+    { label: "Saved", value: favCount, icon: Heart, color: "text-rose-600" },
+    { label: "Messages", value: messages.length, icon: MessageSquare, color: "text-violet-600" },
   ];
 
   return (
@@ -46,74 +83,88 @@ function DashboardOverview() {
         </Button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {stats.map((s) => (
-          <Card key={s.label}>
-            <CardContent className="p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">{s.label}</p>
-                  <p className="mt-1 text-3xl font-bold">{s.value}</p>
-                </div>
-                <s.icon className={`h-8 w-8 ${s.color}`} />
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardContent className="p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="font-semibold">Recent activity</h3>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <ul className="space-y-3 text-sm">
-              {my.map((l) => (
-                <li
-                  key={l.id}
-                  className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0"
-                >
-                  <div>
-                    <p className="font-medium">{l.business_name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {l.category}
-                    </p>
-                  </div>
-                  <Badge variant={l.status === "approved" ? "default" : "secondary"}>
-                    {l.status}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="font-semibold">Latest messages</h3>
-              <Link to="/dashboard/messages" className="text-xs text-primary hover:underline">
-                View all
-              </Link>
-            </div>
-            <ul className="space-y-3 text-sm">
-              {mockMessages.slice(0, 3).map((m) => (
-                <li key={m.id} className="border-b pb-3 last:border-0 last:pb-0">
+      {loading ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {stats.map((s) => (
+              <Card key={s.label}>
+                <CardContent className="p-5">
                   <div className="flex items-center justify-between">
-                    <p className="font-medium">{m.from_name}</p>
-                    {m.unread && <Badge>New</Badge>}
+                    <div>
+                      <p className="text-sm text-muted-foreground">{s.label}</p>
+                      <p className="mt-1 text-3xl font-bold">{s.value}</p>
+                    </div>
+                    <s.icon className={`h-8 w-8 ${s.color}`} />
                   </div>
-                  <p className="line-clamp-1 text-xs text-muted-foreground">
-                    {m.preview}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardContent className="p-6">
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="font-semibold">Recent activity</h3>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </div>
+                {myListings.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No listings yet.</p>
+                ) : (
+                  <ul className="space-y-3 text-sm">
+                    {myListings.map((l) => (
+                      <li
+                        key={l.id}
+                        className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0"
+                      >
+                        <div>
+                          <p className="font-medium">{l.business_name}</p>
+                          <p className="text-xs text-muted-foreground">{l.category}</p>
+                        </div>
+                        <Badge variant={l.status === "approved" ? "default" : "secondary"}>
+                          {l.status}
+                        </Badge>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-6">
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="font-semibold">Latest messages</h3>
+                  <Link to="/dashboard/messages" className="text-xs text-primary hover:underline">
+                    View all
+                  </Link>
+                </div>
+                {messages.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No messages yet.</p>
+                ) : (
+                  <ul className="space-y-3 text-sm">
+                    {messages.slice(0, 3).map((m) => (
+                      <li key={m.id} className="border-b pb-3 last:border-0 last:pb-0">
+                        <div className="flex items-center justify-between">
+                          <p className="font-medium">{m.from_name}</p>
+                          {!m.read && <Badge>New</Badge>}
+                        </div>
+                        <p className="line-clamp-1 text-xs text-muted-foreground">
+                          {m.body}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,7 +23,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth";
-import { mockCategories, mockListings, type Listing } from "@/lib/mockData";
+import { supabase } from "@/lib/supabaseClient";
+import { defaultCategories, type Category, type Listing } from "@/lib/mockData";
 
 export const Route = createFileRoute("/dashboard/listings")({
   component: MyListings,
@@ -31,29 +32,69 @@ export const Route = createFileRoute("/dashboard/listings")({
 
 function MyListings() {
   const { user } = useAuth();
-  const [listings, setListings] = useState<Listing[]>(() =>
-    mockListings.filter((l) => l.owner_id === user?.id).length > 0
-      ? mockListings.filter((l) => l.owner_id === user?.id)
-      : mockListings.slice(0, 3),
-  );
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [categories, setCategories] = useState<Category[]>(defaultCategories);
+  const [loading, setLoading] = useState(true);
 
-  function addListing(
-    l: Omit<Listing, "id" | "created_at" | "status" | "owner_id">,
+  useEffect(() => {
+    if (!user) return;
+
+    // Fetch this user's listings
+    supabase
+      .from("listings")
+      .select("*")
+      .eq("owner_id", user.id)
+      .order("created_at", { ascending: false })
+      .then(({ data, error }) => {
+        if (error) toast.error("Failed to load listings: " + error.message);
+        else setListings((data ?? []) as Listing[]);
+        setLoading(false);
+      });
+
+    // Fetch categories
+    supabase
+      .from("categories")
+      .select("*")
+      .order("name")
+      .then(({ data, error }) => {
+        if (!error && data && data.length > 0) setCategories(data as Category[]);
+      });
+  }, [user]);
+
+  async function addListing(
+    form: Omit<Listing, "id" | "created_at" | "status" | "owner_id" | "owner_name">,
   ) {
-    setListings((prev) => [
-      {
-        ...l,
-        id: crypto.randomUUID(),
-        created_at: new Date().toISOString(),
+    if (!user) return;
+    const { data, error } = await supabase
+      .from("listings")
+      .insert({
+        ...form,
+        owner_id: user.id,
+        owner_name: user.full_name,
         status: "pending",
-        owner_id: user?.id ?? "me",
-      },
-      ...prev,
-    ]);
+      })
+      .select()
+      .single();
+
+    if (error) {
+      toast.error("Failed to add listing: " + error.message);
+      return;
+    }
+    setListings((prev) => [data as Listing, ...prev]);
     toast.success("Listing submitted for approval");
   }
 
-  function deleteListing(id: string) {
+  async function deleteListing(id: string) {
+    const { error } = await supabase
+      .from("listings")
+      .delete()
+      .eq("id", id)
+      .eq("owner_id", user!.id);
+
+    if (error) {
+      toast.error("Failed to delete listing: " + error.message);
+      return;
+    }
     setListings((p) => p.filter((l) => l.id !== id));
     toast.success("Listing removed");
   }
@@ -67,10 +108,14 @@ function MyListings() {
             Manage the businesses you've published to the directory.
           </p>
         </div>
-        <AddListingDialog onAdd={addListing} />
+        <AddListingDialog categories={categories} onAdd={addListing} />
       </div>
 
-      {listings.length === 0 ? (
+      {loading ? (
+        <div className="flex items-center justify-center py-24">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      ) : listings.length === 0 ? (
         <Card>
           <CardContent className="py-16 text-center text-muted-foreground">
             You haven't created any listings yet.
@@ -130,18 +175,38 @@ function MyListings() {
 }
 
 function AddListingDialog({
+  categories,
   onAdd,
 }: {
-  onAdd: (l: Omit<Listing, "id" | "created_at" | "status" | "owner_id">) => void;
+  categories: Category[];
+  onAdd: (l: Omit<Listing, "id" | "created_at" | "status" | "owner_id" | "owner_name">) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     business_name: "",
-    category: mockCategories[0].name,
+    category: categories[0]?.name ?? "",
     description: "",
     contact: "",
     location: "",
+    image_url: "",
   });
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    await onAdd(form);
+    setSaving(false);
+    setOpen(false);
+    setForm({
+      business_name: "",
+      category: categories[0]?.name ?? "",
+      description: "",
+      contact: "",
+      location: "",
+      image_url: "",
+    });
+  }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -154,29 +219,13 @@ function AddListingDialog({
         <DialogHeader>
           <DialogTitle>New business listing</DialogTitle>
         </DialogHeader>
-        <form
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            onAdd(form);
-            setOpen(false);
-            setForm({
-              business_name: "",
-              category: mockCategories[0].name,
-              description: "",
-              contact: "",
-              location: "",
-            });
-          }}
-        >
+        <form className="space-y-3" onSubmit={handleSubmit}>
           <div className="space-y-2">
             <Label>Business name</Label>
             <Input
               required
               value={form.business_name}
-              onChange={(e) =>
-                setForm({ ...form, business_name: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, business_name: e.target.value })}
             />
           </div>
           <div className="space-y-2">
@@ -189,7 +238,7 @@ function AddListingDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {mockCategories.map((c) => (
+                {categories.map((c) => (
                   <SelectItem key={c.id} value={c.name}>
                     {c.name}
                   </SelectItem>
@@ -203,9 +252,7 @@ function AddListingDialog({
               required
               rows={3}
               value={form.description}
-              onChange={(e) =>
-                setForm({ ...form, description: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -224,8 +271,20 @@ function AddListingDialog({
               />
             </div>
           </div>
-          <Button type="submit" className="w-full">
-            Submit for approval
+          <div className="space-y-2">
+            <Label>Image URL (optional)</Label>
+            <Input
+              value={form.image_url}
+              onChange={(e) => setForm({ ...form, image_url: e.target.value })}
+              placeholder="https://..."
+            />
+          </div>
+          <Button type="submit" className="w-full" disabled={saving}>
+            {saving ? (
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Submitting…</>
+            ) : (
+              "Submit for approval"
+            )}
           </Button>
         </form>
       </DialogContent>

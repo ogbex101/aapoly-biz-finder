@@ -1,13 +1,15 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Phone, MapPin, ArrowLeft, Star } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Phone, MapPin, ArrowLeft, Star, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Navbar } from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { mockListings } from "@/lib/mockData";
+import { supabase } from "@/lib/supabaseClient";
+import { useAuth } from "@/lib/auth";
+import type { Listing } from "@/lib/mockData";
 
 export const Route = createFileRoute("/listing/$id")({
   component: ListingDetail,
@@ -19,9 +21,60 @@ export const Route = createFileRoute("/listing/$id")({
 function ListingDetail() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
-  const listing = mockListings.find((l) => l.id === id);
+  const { user } = useAuth();
+
+  const [listing, setListing] = useState<Listing | null>(null);
+  const [loading, setLoading] = useState(true);
   const [review, setReview] = useState("");
   const [rating, setRating] = useState(5);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    supabase
+      .from("listings")
+      .select("*")
+      .eq("id", id)
+      .single()
+      .then(({ data, error }) => {
+        if (!error && data) setListing(data as Listing);
+        setLoading(false);
+      });
+  }, [id]);
+
+  async function submitReview() {
+    if (!review.trim()) return;
+    if (!user) {
+      toast.error("Please log in to leave a review.");
+      return;
+    }
+    setSubmitting(true);
+    const { error } = await supabase.from("reviews").insert({
+      listing_id: id,
+      user_id: user.id,
+      reviewer_name: user.full_name,
+      rating,
+      body: review.trim(),
+    });
+    setSubmitting(false);
+    if (error) {
+      toast.error("Failed to submit review: " + error.message);
+    } else {
+      toast.success("Review submitted!");
+      setReview("");
+      setRating(5);
+    }
+  }
+
+  if (loading) {
+    return (
+      <>
+        <Navbar />
+        <div className="flex items-center justify-center py-32">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </>
+    );
+  }
 
   if (!listing) {
     return (
@@ -105,13 +158,14 @@ function ListingDetail() {
                     rows={4}
                   />
                   <Button
-                    onClick={() => {
-                      toast.success("Review submitted (demo)");
-                      setReview("");
-                    }}
-                    disabled={!review.trim()}
+                    onClick={submitReview}
+                    disabled={!review.trim() || submitting}
                   >
-                    Submit review
+                    {submitting ? (
+                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Submitting…</>
+                    ) : (
+                      "Submit review"
+                    )}
                   </Button>
                 </CardContent>
               </Card>

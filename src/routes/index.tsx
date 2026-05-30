@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Search,
   MapPin,
@@ -10,17 +10,19 @@ import {
   Store,
   TrendingUp,
   Star,
+  Loader2,
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { mockListings, mockCategories } from "@/lib/mockData";
+import { supabase } from "@/lib/supabaseClient";
+import { defaultCategories, type Category, type Listing } from "@/lib/mockData";
 import heroCampus from "@/assets/hero-campus.jpg";
 import sectionEntrepreneur from "@/assets/section-entrepreneur.jpg";
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute("/")(  {
   head: () => ({
     meta: [
       { title: "CampusBiz — AAPoly Business Directory" },
@@ -38,13 +40,34 @@ function HomePage() {
   const navigate = useNavigate();
   const [q, setQ] = useState("");
   const [activeCat, setActiveCat] = useState<string | null>(null);
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [categories, setCategories] = useState<Category[]>(defaultCategories);
+  const [loadingListings, setLoadingListings] = useState(true);
 
-  const approved = useMemo(
-    () => mockListings.filter((l) => l.status === "approved"),
-    [],
-  );
+  useEffect(() => {
+    // Fetch approved listings
+    supabase
+      .from("listings")
+      .select("*")
+      .eq("status", "approved")
+      .order("created_at", { ascending: false })
+      .then(({ data, error }) => {
+        if (!error && data) setListings(data as Listing[]);
+        setLoadingListings(false);
+      });
+
+    // Fetch categories
+    supabase
+      .from("categories")
+      .select("*")
+      .order("name")
+      .then(({ data, error }) => {
+        if (!error && data && data.length > 0) setCategories(data as Category[]);
+      });
+  }, []);
+
   const filtered = useMemo(() => {
-    return approved.filter((l) => {
+    return listings.filter((l) => {
       const matchQ =
         !q ||
         l.business_name.toLowerCase().includes(q.toLowerCase()) ||
@@ -52,7 +75,7 @@ function HomePage() {
       const matchCat = !activeCat || l.category === activeCat;
       return matchQ && matchCat;
     });
-  }, [approved, q, activeCat]);
+  }, [listings, q, activeCat]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -138,7 +161,7 @@ function HomePage() {
                 </div>
                 <div>
                   <p className="text-2xl font-bold leading-none">
-                    {mockListings.length}+
+                    {listings.length}+
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Active businesses
@@ -158,7 +181,7 @@ function HomePage() {
             >
               All
             </button>
-            {mockCategories.map((c) => (
+            {categories.map((c) => (
               <button
                 key={c.id}
                 onClick={() => setActiveCat(c.name)}
@@ -215,7 +238,7 @@ function HomePage() {
         </div>
       </section>
 
-      {/* Grid */}
+      {/* Listings Grid */}
       <section id="listings" className="container mx-auto px-4 py-16">
         <div className="mb-8 flex items-end justify-between">
           <div>
@@ -223,12 +246,16 @@ function HomePage() {
               Featured Businesses
             </h2>
             <p className="text-sm text-muted-foreground">
-              {filtered.length} result{filtered.length === 1 ? "" : "s"}
+              {loadingListings ? "Loading…" : `${filtered.length} result${filtered.length === 1 ? "" : "s"}`}
             </p>
           </div>
         </div>
 
-        {filtered.length === 0 ? (
+        {loadingListings ? (
+          <div className="flex items-center justify-center py-24">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        ) : filtered.length === 0 ? (
           <div className="rounded-lg border border-dashed py-16 text-center text-muted-foreground">
             No businesses match your search.
           </div>
